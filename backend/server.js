@@ -19,18 +19,19 @@ if (!fs.existsSync(REPORT_DIR)) {
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'"],           
-      scriptSrc: ["'self'"],            
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
     },
   },
-  frameguard: { action: 'deny' },       
+  frameguard: { action: 'deny' },
   hsts: {
-    maxAge: 31536000,                   
+    maxAge: 31536000,
     includeSubDomains: true,
   }
 }));
+
 const allowedOrigins = [
   'https://booking.vercel.app',      // Production frontend
   'https://qa-booking.vercel.app',   // QA frontend
@@ -38,43 +39,34 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-  origin: (origin, callback) => {
+  origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    
     const isVercelDomain = origin.endsWith('.vercel.app');
-    
     if (allowedOrigins.includes(origin) || isVercelDomain) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS blocked: ${origin} not allowed`));
+      return callback(null, true);
     }
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
+    return callback(null, false); // ❌ block origin ที่ไม่อนุญาต
+  }
 }));
+
 
 app.use(express.json());
 
+// ✅ General rate limit สำหรับทุก API
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // หน้าต่างเวลา: 15 นาที
-  max: 100,                  // สูงสุด 100 requests ต่อ IP ต่อ 15 นาที
-  standardHeaders: true,     // ส่ง RateLimit headers กลับไปให้ client
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    error: 'Too many requests. Please try again in 15 minutes.'
-  }
+  message: { error: 'Too many requests. Please try again in 15 minutes.' }
 });
 
 const loginLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 10,
-  skipSuccessfulRequests: true,
+  windowMs: 60 * 60 * 1000,   // 1 ชั่วโมง
+  max: 10,                    // อนุญาต 10 ครั้งต่อ IP
   message: { error: 'Too many login attempts. Try again in 1 hour.' },
 });
 
-app.use('/api/', generalLimiter);
-app.use('/api/login', loginLimiter);
 
 const STATUS_VALUES = ['pending', 'confirmed', 'cancelled', 'completed'];
 
@@ -183,9 +175,8 @@ const validateRoomData = (data) => {
   return errors;
 };
 
-app.post('/api/login',loginLimiter, async (req, res) => {
+app.post('/api/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
-
   if (!username || !password) {
     return res.status(400).json({ error: 'กรุณากรอก username และ password' });
   }
@@ -201,14 +192,11 @@ app.post('/api/login',loginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
     }
 
-    const token = jwt.sign({ id: 1, role: 'admin' }, process.env.JWT_SECRET, {
-  expiresIn: '24h'}
-  );
-
-    res.json({
-      token,
-      user: { id: user.id, username: user.username, role: user.role }
+    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
+      expiresIn: '24h'
     });
+
+    res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
